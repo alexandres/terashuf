@@ -18,176 +18,227 @@
 // IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 // CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
-#include <cstdlib>
-#include <string>
-#include <vector>
 #include "string.h"
 #include "unistd.h"
+#include <cstdlib>
+#include <iostream>
+#include <string>
+#include <vector>
+
+#define MAX(x, y) (((x) > (y)) ? (x) : (y))
+#define MIN(x, y) (((x) < (y)) ? (x) : (y))
+
+typedef long long ll;
 
 const int MAX_PATH_LEN = 1000;
+const int IO_CHUNK = 64 * 1024;
 
-int maxLineLen;
-long long bufBytes;
-long long *shufIndexes;
-char *buf;
+ll maxLineLen;
+ll bufBytes;
+ll bufPos;
+std::vector<ll> shufIndexes;
+char* buf;
+ll longestLine;
 
-void shufFlushBuf(long long lines, FILE* f) {
-    for (long long i = 0; i < lines; i++) {
-        shufIndexes[i] = i; 
+unsigned long long llrand()
+{
+    unsigned long long r = 0;
+
+    for (int i = 0; i < 5; ++i) {
+	r = (r << 15) | (rand() & 0x7FFF);
     }
-    for (long long i = lines - 1; i >= 0; --i) {
-        if (i > 0) std::swap(shufIndexes[i],shufIndexes[rand() % (i+1)]);
-        long long line = shufIndexes[i];
-        int j = 0;
-        while (*(buf+line*maxLineLen+j) != '\n') j++;
-        fwrite(buf+line*maxLineLen, sizeof(char), j + 1, f);
-    }
+
+    return r & 0xFFFFFFFFFFFFFFFFULL;
 }
 
-int readLine(char *buf, FILE* f) {
-    int i = 0, c = 0;
-    while ((c = fgetc(f)) != EOF && i < maxLineLen) {
-        buf[i] = c;
-        i++;
-        if (c == '\n') return i;
+ll shufFlushBuf(FILE* f)
+{
+    ll bytesWritten = 0;
+    for (ll i = shufIndexes.size() - 1; i >= 0; --i) {
+	if (i > 0)
+	    std::swap(shufIndexes[i], shufIndexes[llrand() % (i + 1)]);
+	ll line = shufIndexes[i];
+	ll j = 0;
+	while (*(buf + line + j) != '\n')
+	    j++;
+	ll bytesToWrite = j + 1;
+	bytesWritten += bytesToWrite;
+	for (ll k = 0; k < bytesToWrite;) {
+	    ll chunkSize = MIN(bytesToWrite - k, IO_CHUNK);
+	    fwrite(buf + line + k, sizeof(char), chunkSize, f);
+	    k += chunkSize;
+	}
     }
-    if (c == EOF) return 0; // we're discarding last line if no line break at the end
+    return bytesWritten;
+}
 
-    // line is too long, consume till the end of the line or eof
+ll readLine(char* buf, FILE* f)
+{
+    ll initialBufPos = bufPos, c = 0;
     while ((c = fgetc(f)) != EOF) {
-        if (c == '\n') return -1;
+	buf[bufPos++] = c;
+	if (c == '\n') {
+	    shufIndexes.push_back(initialBufPos);
+	    return bufPos - initialBufPos;
+	}
     }
     return 0;
-} 
+}
+
+ll fillBufAndMarkLines(char* buf, FILE* f)
+{
+    // anything remaining from last fillBuf? move to buf start
+    if (bufPos == bufBytes) {
+	// check if buf ends in newline, otherwise keep track of where incomplete line started so it can be copied to beginning of buffer after flush
+	while (bufPos > 0 && buf[bufPos - 1] != '\n')
+	    bufPos--;
+	if (bufPos == 0) {
+	    fprintf(stderr, "FATAL ERROR: line too long to fit in buffer (> %lld bytes):\n", bufBytes);
+	    fwrite(buf, sizeof(char), MIN(bufBytes, 50), stderr);
+	    std::cerr << "...\n";
+	    exit(1); // line was too long to fit in buf, can't be shuffled
+	}
+	ll bytesToCpy = bufBytes - bufPos;
+	memcpy(buf, buf + bufPos, bytesToCpy);
+	bufPos = bytesToCpy;
+    } else {
+	bufPos = 0;
+    }
+
+    // fill entire buf
+    ll bytesRead = 0;
+    while ((bytesRead = fread(buf + bufPos, sizeof(char), MIN(IO_CHUNK, bufBytes - bufPos), f))) {
+	bufPos += bytesRead;
+	if (bufPos == bufBytes)
+	    break;
+    }
+
+    shufIndexes.clear();
+    // mark lines and store pos in shufIndexes
+    ll lineStart = 0;
+    for (ll i = 0; i < bufPos; i++) {
+	if (buf[i] == '\n') {
+	    shufIndexes.push_back(lineStart);
+	    ll lineLen = i - lineStart + 1;
+	    longestLine = MAX(longestLine, lineLen);
+	    lineStart = i + 1;
+	}
+    }
+    return bufPos;
+}
 
 struct TmpFile {
     FILE* f;
     char* path;
 };
 
-int main() {
+int main()
+{
     srand(time(NULL));
-    
-    char const *tmpDir = std::getenv("TMPDIR");
-    if (tmpDir == NULL) tmpDir = "/tmp";  
+
+    char const* tmpDir = std::getenv("TMPDIR");
+    if (tmpDir == NULL)
+	tmpDir = "/tmp";
     char tmpNameTemplate[MAX_PATH_LEN];
     strcpy(tmpNameTemplate, tmpDir);
     strcat(tmpNameTemplate, "/terashufXXXXXX");
 
-    char *memoryStr = std::getenv("MEMORY");
+    char* memoryStr = std::getenv("MEMORY");
     double memory = 4.;
-    if (memoryStr != NULL) memory = std::stof(std::string(memoryStr));
+    if (memoryStr != NULL)
+	memory = std::stof(std::string(memoryStr));
 
-    char *maxLineLenStr = std::getenv("MAXLINELEN");
-    maxLineLen = 1000;
-    if (maxLineLenStr != NULL) maxLineLen = std::stoi(std::string(maxLineLenStr));
-    
-    long long bufLines = memory * (1024*1024*1024) / (sizeof(char)*maxLineLen);
-    bufBytes = sizeof(char)*bufLines*maxLineLen;
-    long long shufIndexesBytes = sizeof(long long)*bufLines;
-    buf = (char*) malloc(bufBytes);
-    shufIndexes = (long long *) malloc(shufIndexesBytes);
-    fprintf(stderr, "trying to allocate %lld bytes\n", bufBytes + shufIndexesBytes);
-    if (buf == NULL || shufIndexes == NULL) {
-        fprintf(stderr, "failed to allocate memory\n");
-        return -1;
+    bufBytes = sizeof(char) * (ll)(memory * 1024. * 1024. * 1024.);
+    buf = (char*)malloc(bufBytes);
+    fprintf(stderr, "trying to allocate %lld bytes\n", bufBytes);
+    if (buf == NULL) {
+	fprintf(stderr, "failed to allocate buf memory\n");
+	return -1;
     }
 
     fprintf(stderr, "\nstarting read\n");
 
     std::vector<TmpFile*> files;
 
-    int bytesRead = 0;
-    long long lines = 0, totalBytesRead = 0, totalLinesRead = 0, longLines = 0;
+    ll newBufPos = 0;
+    ll totalBytesRead = 0, totalLinesRead = 0;
 
-    while (true) {
-        bytesRead = readLine(buf+lines*maxLineLen, stdin);
-        // check for error in bytesRead
-        if (bytesRead == -1) {
-            // exceeded maxLineLen, either warn on stderr or panic
-            longLines++;
-        } else {
-            if (bytesRead > 0) {
-                lines++;
-                totalLinesRead++;
-                totalBytesRead += bytesRead;
-                if (totalLinesRead % 1000000 == 0) fprintf(stderr, "\rlines read: %lld, gb read: %lld", totalLinesRead, totalBytesRead / (1024*1024*1024));                
-            }
-            // check if buffer is full or buffer part full and input finished, if so shuf and flush
-            if ((bytesRead == 0 && lines > 0) || lines == bufLines) {
-                TmpFile *tmpFile = (TmpFile*) malloc(sizeof(TmpFile));
-                FILE* f;
-                if (bytesRead == 0 && files.size() == 0) {
-                    // finished reading input using single buffer, don't need to create tmpfile, flush buffer to stdout directly
-                    f = stdout;
-                } else {
-                    tmpFile->path = (char*) malloc(MAX_PATH_LEN);
-                    strcpy(tmpFile->path, tmpNameTemplate); 
-                    int fd = mkstemp(tmpFile->path);
-                    if (fd == -1) {
-                        fprintf(stderr, "failed to create fd tmp file %s\n", tmpNameTemplate);
-                        return -1;
-                    }
-                    tmpFile->f = fdopen(fd, "wb+");
-                    if (tmpFile->f == NULL) {
-                        fprintf(stderr, "failed to create tmp file %s\n", tmpFile->path);
-                        return -1;
-                    }
-                    f = tmpFile->f;
-                }
-                shufFlushBuf(lines, f);
-                files.push_back(tmpFile);
-                lines = 0;
-            }
-            if (bytesRead == 0) break;
-        }
+    while ((newBufPos = fillBufAndMarkLines(buf, stdin))) {
+	TmpFile* tmpFile = (TmpFile*)malloc(sizeof(TmpFile));
+	FILE* f;
+	if (newBufPos < bufBytes && files.size() == 0) {
+	    // finished reading input using single buffer, don't need to create tmpfile, flush buffer to stdout directly
+	    f = stdout;
+	} else {
+	    tmpFile->path = (char*)malloc(MAX_PATH_LEN);
+	    strcpy(tmpFile->path, tmpNameTemplate);
+	    int fd = mkstemp(tmpFile->path);
+	    if (fd == -1) {
+		fprintf(stderr, "failed to create fd tmp file %s\n", tmpNameTemplate);
+		return -1;
+	    }
+	    tmpFile->f = fdopen(fd, "wb+");
+	    if (tmpFile->f == NULL) {
+		fprintf(stderr, "failed to create tmp file %s\n", tmpFile->path);
+		return -1;
+	    }
+	    f = tmpFile->f;
+	}
+	if (shufIndexes.size() > 0)
+	    totalBytesRead += shufFlushBuf(f);
+	totalLinesRead += shufIndexes.size();
+	fprintf(stderr, "\rlines read: %lld, gb read: %lld", totalLinesRead, totalBytesRead / (1024 * 1024 * 1024));
+	files.push_back(tmpFile);
     }
-    
-    // inform totalLines and totalBytesRead 
-    fprintf(stderr, "\nRead %lld lines, %lld bytes, have %d tmp files, skipped %lld long lines\n", totalLinesRead, totalBytesRead, (int) files.size(), longLines);
+
+    // inform totalLines and totalBytesRead
+    fprintf(stderr, "\nRead %lld lines, %lld bytes, have %d tmp files\n", totalLinesRead, totalBytesRead, (int)files.size());
 
     if (files.size() == 1) {
-        fprintf(stderr, "\nShuffled directly to stdout without using tmpfiles, done!\n");
-        return 0;
+	fprintf(stderr, "\nShuffled directly to stdout without using tmpfiles, done!\n");
+	return 0;
     }
 
-    long long linesPerFile = bufLines / files.size();
-     
+    double averageBytesPerLine = (double)totalBytesRead / (double)totalLinesRead;
+    ll linesPerFile = (ll)((double)bufBytes / averageBytesPerLine);
+
     std::vector<TmpFile*> files2;
 
-    for (int i = 0; i < (int) files.size(); i++) {
-            rewind(files[i]->f);
+    for (int i = 0; i < (int)files.size(); i++) {
+	rewind(files[i]->f);
     }
 
-    long long totalBytesWritten = 0, totalLinesWritten = 0;
+    ll totalBytesWritten = 0, totalLinesWritten = 0;
 
     fprintf(stderr, "\nstarting write to output\n");
 
     while (files.size() > 0) {
-        lines = 0;
-        for (int i = 0; i < (int) files.size(); i++) {
-            bool keepFile = true;
-            for (int j = 0; j < (int) linesPerFile; j++) {
-                int bytesRead = readLine(buf+lines*maxLineLen, files[i]->f);
-                if (bytesRead > 0) {
-                    lines++;
-                    totalLinesWritten++;
-                    totalBytesWritten += bytesRead;
-                    if (totalLinesWritten % 1000000 == 0) fprintf(stderr, "\rlines written: %lld, gb written: %lld", totalLinesWritten, totalBytesWritten / (1024*1024*1024));
-                } else {
-                    keepFile = false;
-                    break;
-                }
-            }
-            if (keepFile) files2.push_back(files[i]);
-            else {
-                fclose(files[i]->f);
-                unlink(files[i]->path);
-            }
-        }
-        if (lines > 0) shufFlushBuf(lines, stdout);
-        std::swap(files, files2);
-        files2.clear();
+	bufPos = 0;
+	for (int i = 0; i < (int)files.size(); i++) {
+	    bool keepFile = true;
+	    for (ll j = 0; j < linesPerFile; j++) {
+		// check if enough room in buffer to hold longest line
+		if (bufBytes - bufPos < longestLine)
+		    break;
+		ll bytesRead = readLine(buf, files[i]->f);
+		if (bytesRead == 0) {
+		    keepFile = false;
+		    break;
+		}
+	    }
+	    if (keepFile)
+		files2.push_back(files[i]);
+	    else {
+		fclose(files[i]->f);
+		unlink(files[i]->path);
+	    }
+	}
+	totalBytesWritten += shufFlushBuf(stdout);
+	totalLinesWritten += shufIndexes.size();
+	fprintf(stderr, "\rlines written: %lld, gb written: %lld", totalLinesWritten, totalBytesWritten / (1024 * 1024 * 1024));
+	shufIndexes.clear();
+	std::swap(files, files2);
+	files2.clear();
     }
     fprintf(stderr, "\ndone\n");
 
