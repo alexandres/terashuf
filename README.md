@@ -1,0 +1,54 @@
+# terashuf
+
+terashuf implements a quasi-shuffle algorithm for shuffling multi-terabyte text files using limited memory. It is a C++ implementation of [this Python script](https://github.com/alexandres/lexvec/blob/master/shuffle.py). 
+
+## Why not GNU sort -R instead?
+
+terashuf has 2 advantages over `sort -R`:
+
+1. With n input lines, it is O(n) unlike `sort` which is O(n log n).
+2. It can shuffle duplicate lines. To deal with duplicate lines in `sort`, the input has to be modified (append an incremental token) so that duplicate lines are different otherwise sort will hash them to the same value and place them in adjacent lines, which is not desirable in a shuffle! Then the tokens have to be removed. It's simpler to use terashuf where none of this is required. 
+
+## Why not GNU shuf?
+
+`shuf` does all the shuffling in-memory, which is a no-go for files larger than memory.
+
+For small files, terashuf doesn't write any temporary files and so function exactly like `shuf`.
+
+## Build
+
+terashuf can be built by calling ```$ make```. It has no dependencies other than the stdlib.
+
+## Usage
+
+`$ ./terashuf < filetoshuffle.txt > shuffled.txt`
+
+It reads 3 ENV variables:
+
+- TMPDIR: defaults to /tmp if not set.
+- MEMORY: defaults to 4.0, meaning use a shuffle buffer of 4 GB. Set this as high as your machine allows.
+- MAXLINELEN: defaults to 1000. This should be set as tightly to your maximum line length as possible so as to more densely pack the buffer. Lines longer than this will be discarded.
+
+When shuffling very large files, terashuf needs to keep open a lot of temporary files. **Make sure to [set the maximum number of file descriptors](https://www.cyberciti.biz/faq/linux-increase-the-maximum-number-of-open-files/) to something like 100000**. If the shuffle buffer is densely packed, this number will be roughly equal to `SIZE_OF_FILE_TO_SHUFFLE / MEMORY`. By setting a large file descriptor limit, you ensure that terashuf won't abort a shuffle midway, saving precious researcher time. 
+
+## Quasi-shuffle
+
+terashuf implements a quasi-shuffle as follows:
+
+1. Divide N input lines into K files containing L lines.
+2. Shuffle each of the K files (this is done in memory before writing the file).
+3. Read one line from each of the K files into a buffer until the buffer has L lines.
+4. Shuffle the buffer and write to output.
+5. Repeat 3. and 4. until all lines have been written to output.
+
+## TODO
+
+Pull requests are very welcome!
+
+- [ ] Rather than use fixed-length lines in the buffer which wastes memory, use variable-length lines such that all buffer memory is used.
+- [ ] Implement --help
+- [ ] Implement `shuf` interface so that terashuf becomes a drop-in replacement
+
+# License
+
+Copyright (c) 2017 Salle, Alexandre <atsalle@inf.ufrgs.br>. All work in this package is distributed under the MIT License.
