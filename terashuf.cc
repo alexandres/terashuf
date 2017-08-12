@@ -40,7 +40,8 @@ std::vector<ll> shufIndexes;
 char* buf;
 ll longestLine;
 
-unsigned long long llrand()
+
+unsigned long long llrand() // 64-bit rand from of https://stackoverflow.com/a/28116032/67550
 {
     unsigned long long r = 0;
 
