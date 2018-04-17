@@ -202,6 +202,7 @@ int main()
 
     double averageBytesPerLine = (double)totalBytesRead / (double)totalLinesRead;
     ll linesPerFile = (ll)((double)bufBytes / averageBytesPerLine);
+    ll shuffleChunkPerFile = linesPerFile / files.size();
 
     std::vector<TmpFile*> files2;
 
@@ -217,7 +218,7 @@ int main()
 	bufPos = 0;
 	for (int i = 0; i < (int)files.size(); i++) {
 	    bool keepFile = true;
-	    for (ll j = 0; j < linesPerFile; j++) {
+	    for (ll j = 0; j < shuffleChunkPerFile; j++) {
 		// check if enough room in buffer to hold longest line
 		if (bufBytes - bufPos < longestLine)
 		    break;

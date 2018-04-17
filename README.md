@@ -6,14 +6,32 @@ terashuf implements a quasi-shuffle algorithm for shuffling multi-terabyte text 
 
 terashuf has 2 advantages over `sort -R`:
 
-1. With n input lines, it is O(n) unlike `sort` which is O(n log n).
+1. terashuf is much, much faster. See benchmark below.
 2. It can shuffle duplicate lines. To deal with duplicate lines in `sort`, the input has to be modified (append an incremental token) so that duplicate lines are different otherwise sort will hash them to the same value and place them in adjacent lines, which is not desirable in a shuffle! Then the tokens have to be removed. It's simpler to use terashuf where none of this is required. 
 
 ## Why not GNU shuf?
 
 `shuf` does all the shuffling in-memory, which is a no-go for files larger than memory.
 
-For small files, terashuf doesn't write any temporary files and so functions exactly like `shuf`.
+For small files, terashuf doesn't write any temporary files and so functions exactly like `shuf`. In 
+the benchmark below, terashuf marginally outperforms shuf.
+
+## Benchmark
+
+The following compares shuffle times for a 20GB Wikipedia dump. terashuf is tested with limited memory
+and with memory large enough to fit the entire file (in-memory like shuf): 
+
+| Command        | Memory (GB)     | Real Time           | User Time   |  Sys Time    |
+|----------------|-----------------|---------------------|-------------|--------------|
+| terashuf       | 4               | 6m16s               | 4m53s       |  44s         |
+| terashuf       | 20              | 2m32s               | 1m17s       |  21s         |
+| shuf           | 20              | 2m46s               | 50s         |  27s         |
+| sort -R        | 4               | 170m51s             | 649m7s      |  52s         |  
+
+*Benchmark run on Xeon E5-2630 @ 2.60GHz with 128GB of RAM.*
+
+*Note: I'm looking for pull requests implementing the shuf interface so that terashuf can become a drop-in
+replacement for shuf.*
 
 ## Build
 
@@ -49,7 +67,7 @@ Pull requests are very welcome!
 - [x] Rather than use fixed-length lines in the buffer which wastes memory, use variable-length lines such that all buffer memory is used.
 - [ ] Implement --help
 - [ ] Implement `shuf` interface so that terashuf becomes a drop-in replacement
-- [ ] Add benchmarks
+- [x] Add benchmarks
 
 # License
 
