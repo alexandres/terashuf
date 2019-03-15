@@ -44,7 +44,7 @@ terashuf can be built by calling ```$ make```. It has no dependencies other than
 It reads 2 ENV variables:
 
 - TMPDIR: defaults to /tmp if not set.
-- MEMORY: defaults to 4.0, meaning use a shuffle buffer of 4 GB. Set this as high as your machine allows.
+- MEMORY: defaults to 4.0, meaning use a shuffle buffer of 4 GB.
 
 **Note: the last line in the file to be shuffled will be ignored if it does not end with a newline marker (\n).**
 

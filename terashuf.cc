@@ -33,6 +33,7 @@ typedef long long ll;
 
 const int MAX_PATH_LEN = 1000;
 const int IO_CHUNK = 64 * 1024;
+const int LINES_BEFORE_ESTIMATING_MEMORY_OVERHEAD = 1e6;
 
 struct TmpFile {
     FILE* f;
@@ -45,6 +46,8 @@ ll bufPos;
 std::vector<ll> shufIndexes;
 char* buf;
 ll longestLine;
+double memory = 4.;
+bool memoryOverheadDisplayed;
 
 unsigned long long
 llrand()  // 64-bit rand from of https://stackoverflow.com/a/28116032/67550
@@ -136,6 +139,12 @@ ll fillBufAndMarkLines(char* buf, FILE* f) {
             ll lineLen = i - lineStart + 1;
             longestLine = MAX(longestLine, lineLen);
             lineStart = i + 1;
+            if (!memoryOverheadDisplayed && shufIndexes.size() >= LINES_BEFORE_ESTIMATING_MEMORY_OVERHEAD) {
+                memoryOverheadDisplayed = true;
+                double averageBytesPerLine = (double) i / (double) shufIndexes.size();
+                double memoryOverhead = sizeof(ll)/averageBytesPerLine + 1;
+                fprintf(stderr, "mean line-length is %.2f, estimated memory usage is %.2f * %.2f GB = %.2f GB\nTip: If you would like use exactly %.2f GB of memory, use MEMORY=%.4f ./terashuf ...\n", averageBytesPerLine-1, memoryOverhead, memory, memoryOverhead*memory, memory, memory/memoryOverhead);
+            }
         }
     }
     return bufPos;
@@ -151,7 +160,6 @@ int main() {
     strcat(tmpNameTemplate, "/terashuftmpXXXXXX");
 
     char* memoryStr = std::getenv("MEMORY");
-    double memory = 4.;
     if (memoryStr != NULL) memory = std::stof(std::string(memoryStr));
 
     bufBytes = sizeof(char) * (ll)(memory * 1024. * 1024. * 1024.);
