@@ -1,6 +1,6 @@
 # terashuf
 
-terashuf implements a quasi-shuffle algorithm for shuffling multi-terabyte text files using limited memory. It is a C++ implementation of [this Python script](https://github.com/alexandres/lexvec/blob/master/shuffle.py). 
+terashuf implements a quasi-shuffle algorithm for shuffling multi-terabyte text files using limited memory. It is a C++ implementation of [this Python script](https://github.com/alexandres/lexvec/blob/a3e894b5ebf8fb292fc0d1d7b10b8f82e2ac3392/shuffle.py). 
 
 ## Why not GNU sort -R instead?
 
