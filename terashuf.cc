@@ -75,18 +75,14 @@ ll shufFlushBuf(FILE* f) {
         while (*(buf + line + j) != '\n') j++;
         ll bytesToWrite = j + 1;
         bytesWritten += bytesToWrite;
-        for (ll k = 0; k < bytesToWrite;) {
-            ll chunkSize = MIN(bytesToWrite - k, IO_CHUNK);
-            if (fwrite(buf + line + k, sizeof(char), chunkSize, f) !=
-                size_t(chunkSize)) {
-                std::cerr
-                    << std::endl
-                    << "FATAL ERROR: failed to write line to disk. is there "
-                       "space left in $TMPDIR?"
-                    << std::endl;
-                exit(1);
-            }
-            k += chunkSize;
+        if (fwrite(buf + line, sizeof(char), bytesToWrite, f) !=
+            size_t(bytesToWrite)) {
+            std::cerr
+                << std::endl
+                << "FATAL ERROR: failed to write line to disk. is there "
+                    "space left in $TMPDIR?"
+                << std::endl;
+            exit(1);
         }
     }
     return bytesWritten;
@@ -102,7 +98,7 @@ char bufferedFgetc(TmpFile* f) {
     return f->buf[f->bufPos++];
 }
 
-ll readLine(char* buf, TmpFile* f) {
+ll  readLine(char* buf, TmpFile* f) {
     ll initialBufPos = bufPos, c = 0;
     while ((c = bufferedFgetc(f)) != EOF) {
         buf[bufPos++] = c;
@@ -137,13 +133,8 @@ ll fillBufAndMarkLines(char* buf, FILE* f) {
         bufPos = 0;
     }
 
-    // fill entire buf
-    ll bytesRead = 0;
-    while ((bytesRead = fread(buf + bufPos, sizeof(char),
-                              MIN(IO_CHUNK, bufBytes - bufPos), f))) {
-        bufPos += bytesRead;
-        if (bufPos == bufBytes) break;
-    }
+    // fill rest of buf
+    bufPos += fread(buf+bufPos, sizeof(char), bufBytes-bufPos, f);
 
     shufIndexes.clear();
     // mark lines and store pos in shufIndexes
