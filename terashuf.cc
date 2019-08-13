@@ -38,6 +38,11 @@ const int LINES_BEFORE_ESTIMATING_MEMORY_OVERHEAD = 1e6;
 struct TmpFile {
     FILE* f;
     char* path;
+    // fields below for bufferedFgetc
+    char *buf;
+    ll bufPos;
+    ll bufN;
+    bool eof;
 };
 
 ll maxLineLen;
@@ -87,9 +92,19 @@ ll shufFlushBuf(FILE* f) {
     return bytesWritten;
 }
 
-ll readLine(char* buf, FILE* f) {
+char bufferedFgetc(TmpFile* f) {
+    if (!f->eof && f->bufPos == f->bufN) {
+        f->bufN = fread(f->buf, sizeof(char), IO_CHUNK, f->f);
+        f->bufPos = 0;
+        if (!f->bufN) f->eof = true;
+    }
+    if (f->eof) return EOF;
+    return f->buf[f->bufPos++];
+}
+
+ll readLine(char* buf, TmpFile* f) {
     ll initialBufPos = bufPos, c = 0;
-    while ((c = fgetc(f)) != EOF) {
+    while ((c = bufferedFgetc(f)) != EOF) {
         buf[bufPos++] = c;
         if (c == '\n') {
             shufIndexes.push_back(initialBufPos);
@@ -226,8 +241,13 @@ int main() {
 
     std::vector<TmpFile*> files2;
 
-    for (int i = 0; i < (int)files.size(); i++) {
-        rewind(files[i]->f);
+    for (TmpFile* file: files) { 
+        rewind(file->f);
+        // for bufferedFgetc
+        file->buf = (char*) malloc(IO_CHUNK);
+        file->bufPos = 0;
+        file->bufN = 0;
+        file->eof = false;
     }
 
     ll totalBytesWritten = 0, totalLinesWritten = 0;
@@ -241,7 +261,7 @@ int main() {
             for (ll j = 0; j < shuffleChunkPerFile; j++) {
                 // check if enough room in buffer to hold longest line
                 if (bufBytes - bufPos < longestLine) break;
-                ll bytesRead = readLine(buf, files[i]->f);
+                ll bytesRead = readLine(buf, files[i]);
                 if (bytesRead == 0) {
                     keepFile = false;
                     break;
