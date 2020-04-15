@@ -20,16 +20,18 @@
 // SOFTWARE.
 
 #include <cstdlib>
+#include <cstdio>
 #include <iostream>
 #include <string>
 #include <vector>
+#include <algorithm>
 #include "string.h"
 #include "unistd.h"
 
 #define MAX(x, y) (((x) > (y)) ? (x) : (y))
 #define MIN(x, y) (((x) < (y)) ? (x) : (y))
 
-typedef long long ll;
+typedef std::size_t ll;
 
 const int MAX_PATH_LEN = 1000;
 const int IO_CHUNK = 64 * 1024;
@@ -52,32 +54,18 @@ ll bufPos;
 std::vector<ll> shufIndexes;
 char *buf;
 ll longestLine;
-double memory = 4.;
+float memory = 4.;
 char sep = '\n';
 int seed = time(NULL);
 bool memoryOverheadDisplayed;
 
-unsigned long long
-llrand() // 64-bit rand from of https://stackoverflow.com/a/28116032/67550
-{
-    unsigned long long r = 0;
-
-    for (int i = 0; i < 5; ++i)
-    {
-        r = (r << 15) | (rand() & 0x7FFF);
-    }
-
-    return r & 0xFFFFFFFFFFFFFFFFULL;
-}
-
 ll shufFlushBuf(FILE *f)
 {
+    std::random_shuffle(shufIndexes.begin(), shufIndexes.end());
     ll bytesWritten = 0;
-    for (ll i = shufIndexes.size() - 1; i >= 0; --i)
+    for (std::vector<ll>::const_iterator it = shufIndexes.begin(); it != shufIndexes.end(); ++it)
     {
-        if (i > 0)
-            std::swap(shufIndexes[i], shufIndexes[llrand() % (i + 1)]);
-        ll line = shufIndexes[i];
+        ll line = *it;
         ll j = 0;
         while (*(buf + line + j) != sep)
             j++;
@@ -113,7 +101,8 @@ char bufferedFgetc(TmpFile *f)
 
 ll readLine(char *buf, TmpFile *f)
 {
-    ll initialBufPos = bufPos, c = 0;
+    ll initialBufPos = bufPos;
+    char c = 0;
     while ((c = bufferedFgetc(f)) != EOF)
     {
         buf[bufPos++] = c;
@@ -140,7 +129,7 @@ ll fillBufAndMarkLines(char *buf, FILE *f)
         {
             fprintf(
                 stderr,
-                "FATAL ERROR: line too long to fit in buffer (> %lld bytes):\n",
+                "FATAL ERROR: line too long to fit in buffer (> %zu bytes):\n",
                 bufBytes);
             fwrite(buf, sizeof(char), MIN(bufBytes, 50), stderr);
             std::cerr << "...\n";
@@ -168,19 +157,18 @@ ll fillBufAndMarkLines(char *buf, FILE *f)
     ll lineStart = 0;
     for (ll i = 0; i < bufPos; i++)
     {
-        if (buf[i] == sep)
+        if (buf[i] != sep)
+            continue;
+        shufIndexes.push_back(lineStart);
+        ll lineLen = i - lineStart + 1;
+        longestLine = MAX(longestLine, lineLen);
+        lineStart = i + 1;
+        if (!memoryOverheadDisplayed && shufIndexes.size() >= LINES_BEFORE_ESTIMATING_MEMORY_OVERHEAD)
         {
-            shufIndexes.push_back(lineStart);
-            ll lineLen = i - lineStart + 1;
-            longestLine = MAX(longestLine, lineLen);
-            lineStart = i + 1;
-            if (!memoryOverheadDisplayed && shufIndexes.size() >= LINES_BEFORE_ESTIMATING_MEMORY_OVERHEAD)
-            {
-                memoryOverheadDisplayed = true;
-                double averageBytesPerLine = (double)i / (double)shufIndexes.size();
-                double memoryOverhead = sizeof(ll) / averageBytesPerLine + 1;
-                fprintf(stderr, "mean line-length is %.2f, estimated memory usage is %.2f * %.2f GB = %.2f GB\nTip: If you would like use exactly %.2f GB of memory, use MEMORY=%.4f ./terashuf ...\n", averageBytesPerLine - 1, memoryOverhead, memory, memoryOverhead * memory, memory, memory / memoryOverhead);
-            }
+            memoryOverheadDisplayed = true;
+            double averageBytesPerLine = (double)i / (double)shufIndexes.size();
+            double memoryOverhead = sizeof(ll) / averageBytesPerLine + 1;
+            fprintf(stderr, "mean line-length is %.2f, estimated memory usage is %.2f * %.2f GB = %.2f GB\nTip: If you would like use exactly %.2f GB of memory, use MEMORY=%.4f ./terashuf ...\n", averageBytesPerLine - 1, memoryOverhead, memory, memoryOverhead * memory, memory, memory / memoryOverhead);
         }
     }
     return bufPos;
@@ -194,7 +182,7 @@ int main()
 
     char *seedStr = std::getenv("SEED");
     if (seedStr != NULL && strlen(seedStr))
-        seed = std::stoi(std::string(seedStr));
+        seed = strtol(seedStr, NULL, 10);
     srand(seed);
 
     char const *tmpDir = std::getenv("TMPDIR");
@@ -206,11 +194,11 @@ int main()
 
     char *memoryStr = std::getenv("MEMORY");
     if (memoryStr != NULL && strlen(memoryStr))
-        memory = std::stof(std::string(memoryStr));
+        memory = strtof(memoryStr, NULL);
 
     bufBytes = sizeof(char) * (ll)(memory * 1024. * 1024. * 1024.);
     buf = (char *)malloc(bufBytes);
-    fprintf(stderr, "trying to allocate %lld bytes\n", bufBytes);
+    fprintf(stderr, "trying to allocate %zu bytes\n", bufBytes);
     if (buf == NULL)
     {
         fprintf(stderr, "failed to allocate buf memory\n");
@@ -257,13 +245,13 @@ int main()
         if (shufIndexes.size() > 0)
             totalBytesRead += shufFlushBuf(f);
         totalLinesRead += shufIndexes.size();
-        fprintf(stderr, "\rlines read: %lld, gb read: %lld", totalLinesRead,
+        fprintf(stderr, "\rlines read: %zu, gb read: %zu", totalLinesRead,
                 totalBytesRead / (1024 * 1024 * 1024));
         files.push_back(tmpFile);
     }
 
     // inform totalLines and totalBytesRead
-    fprintf(stderr, "\nRead %lld lines, %lld bytes, have %d tmp files\n",
+    fprintf(stderr, "\nRead %zu lines, %zu bytes, have %d tmp files\n",
             totalLinesRead, totalBytesRead, (int)files.size());
 
     if (files.size() == 1)
@@ -281,8 +269,9 @@ int main()
 
     std::vector<TmpFile *> files2;
 
-    for (TmpFile *file : files)
+    for (std::vector<TmpFile *>::const_iterator it = files.begin(); it != files.end(); ++it)
     {
+        TmpFile *file = *it;
         rewind(file->f);
         // for bufferedFgetc
         file->buf = (char *)malloc(IO_CHUNK);
@@ -298,15 +287,16 @@ int main()
     while (files.size() > 0)
     {
         bufPos = 0;
-        for (int i = 0; i < (int)files.size(); i++)
+        for (std::vector<TmpFile *>::const_iterator it = files.begin(); it != files.end(); ++it)
         {
+            TmpFile *file = *it;
             bool keepFile = true;
             for (ll j = 0; j < shuffleChunkPerFile; j++)
             {
                 // check if enough room in buffer to hold longest line
                 if (bufBytes - bufPos < longestLine)
                     break;
-                ll bytesRead = readLine(buf, files[i]);
+                ll bytesRead = readLine(buf, file);
                 if (bytesRead == 0)
                 {
                     keepFile = false;
@@ -314,16 +304,16 @@ int main()
                 }
             }
             if (keepFile)
-                files2.push_back(files[i]);
+                files2.push_back(file);
             else
             {
-                fclose(files[i]->f);
-                unlink(files[i]->path);
+                fclose(file->f);
+                unlink(file->path);
             }
         }
         totalBytesWritten += shufFlushBuf(stdout);
         totalLinesWritten += shufIndexes.size();
-        fprintf(stderr, "\rlines written: %lld, gb written: %lld",
+        fprintf(stderr, "\rlines written: %zu, gb written: %zu",
                 totalLinesWritten, totalBytesWritten / (1024 * 1024 * 1024));
         shufIndexes.clear();
         std::swap(files, files2);
