@@ -41,6 +41,7 @@ struct TmpFile
 {
     FILE *f;
     char *path;
+    ll lines;
     // fields below for bufferedFgetc
     char *buf;
     ll bufPos;
@@ -74,11 +75,7 @@ ll shufFlushBuf(FILE *f)
         if (fwrite(buf + line, sizeof(char), bytesToWrite, f) !=
             size_t(bytesToWrite))
         {
-            std::cerr
-                << std::endl
-                << "FATAL ERROR: failed to write line to disk. is there "
-                   "space left in $TMPDIR?"
-                << std::endl;
+            fprintf(stderr, "\nFATAL ERROR: failed to write line to disk. is there space left in $TMPDIR?\n");
             exit(1);
         }
     }
@@ -101,15 +98,14 @@ char bufferedFgetc(TmpFile *f)
 
 ll readLine(char *buf, TmpFile *f)
 {
-    ll initialBufPos = bufPos;
+    ll bufPos = 0;
     char c = 0;
     while ((c = bufferedFgetc(f)) != EOF)
     {
         buf[bufPos++] = c;
         if (c == sep)
         {
-            shufIndexes.push_back(initialBufPos);
-            return bufPos - initialBufPos;
+            return bufPos;
         }
     }
     return 0;
@@ -132,7 +128,7 @@ ll fillBufAndMarkLines(char *buf, FILE *f)
                 "FATAL ERROR: line too long to fit in buffer (> %zu bytes):\n",
                 bufBytes);
             fwrite(buf, sizeof(char), MIN(bufBytes, 50), stderr);
-            std::cerr << "...\n";
+            fprintf(stderr, "...\n");
             exit(1); // line was too long to fit in buf, can't be shuffled
         }
         ll bytesToCpy = bufBytes - bufPos;
@@ -245,6 +241,7 @@ int main()
         if (shufIndexes.size() > 0)
             totalBytesRead += shufFlushBuf(f);
         totalLinesRead += shufIndexes.size();
+        tmpFile->lines = shufIndexes.size();
         fprintf(stderr, "\rlines read: %zu, gb read: %zu", totalLinesRead,
                 totalBytesRead / (1024 * 1024 * 1024));
         files.push_back(tmpFile);
@@ -262,11 +259,6 @@ int main()
         return 0;
     }
 
-    double averageBytesPerLine =
-        (double)totalBytesRead / (double)totalLinesRead;
-    ll linesPerFile = (ll)((double)bufBytes / averageBytesPerLine);
-    ll shuffleChunkPerFile = linesPerFile / files.size();
-
     std::vector<TmpFile *> files2;
 
     for (std::vector<TmpFile *>::const_iterator it = files.begin(); it != files.end(); ++it)
@@ -280,44 +272,42 @@ int main()
         file->eof = false;
     }
 
-    ll totalBytesWritten = 0, totalLinesWritten = 0;
+    ll totalBytesWritten = 0, linesRemaining = totalLinesRead, totalBytesWrittenForProgress = 0;
 
     fprintf(stderr, "\nstarting write to output\n");
 
-    while (files.size() > 0)
+    while (linesRemaining)
     {
-        bufPos = 0;
+        ll randLine = std::rand()%linesRemaining;  
+        ll cumSum = 0;
         for (std::vector<TmpFile *>::const_iterator it = files.begin(); it != files.end(); ++it)
         {
             TmpFile *file = *it;
-            bool keepFile = true;
-            for (ll j = 0; j < shuffleChunkPerFile; j++)
-            {
-                // check if enough room in buffer to hold longest line
-                if (bufBytes - bufPos < longestLine)
-                    break;
+            cumSum += file->lines;
+            if (randLine < cumSum) {
+                linesRemaining--;
+                file->lines--;
                 ll bytesRead = readLine(buf, file);
-                if (bytesRead == 0)
-                {
-                    keepFile = false;
-                    break;
+                if (!file->lines) {
+                    fclose(file->f);
+                    unlink(file->path);
                 }
-            }
-            if (keepFile)
-                files2.push_back(file);
-            else
-            {
-                fclose(file->f);
-                unlink(file->path);
+                ll bytesWritten = fwrite(buf, sizeof(char), bytesRead, stdout);
+                if (bytesRead != bytesWritten) {
+                    fprintf(stderr, "\nFATAL ERROR: failed to write line to disk. is there space left?\n");
+                    return -1;
+                }
+                totalBytesWritten += bytesWritten;
+                totalBytesWrittenForProgress += bytesWritten;
+                break;
             }
         }
-        totalBytesWritten += shufFlushBuf(stdout);
-        totalLinesWritten += shufIndexes.size();
-        fprintf(stderr, "\rlines written: %zu, gb written: %zu",
-                totalLinesWritten, totalBytesWritten / (1024 * 1024 * 1024));
-        shufIndexes.clear();
-        std::swap(files, files2);
-        files2.clear();
+        // check if enough room in buffer to hold longest line
+        if (!linesRemaining || totalBytesWrittenForProgress >= bufBytes) {
+            fprintf(stderr, "\rlines written: %zu, gb written: %zu",
+                totalLinesRead-linesRemaining, totalBytesWritten / (1024 * 1024 * 1024));
+            totalBytesWrittenForProgress = 0;
+        }
     }
     fprintf(stderr, "\ndone\n");
 

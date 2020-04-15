@@ -1,6 +1,6 @@
 # terashuf
 
-terashuf implements a quasi-shuffle algorithm for shuffling multi-terabyte text files using limited memory. It is a C++ implementation of [this Python script](https://github.com/alexandres/lexvec/blob/a3e894b5ebf8fb292fc0d1d7b10b8f82e2ac3392/shuffle.py). 
+terashuf shuffles multi-terabyte text files using limited memory. It is an improved (fair shuffling!) C++ implementation of [this Python script](https://github.com/alexandres/lexvec/blob/a3e894b5ebf8fb292fc0d1d7b10b8f82e2ac3392/shuffle.py). 
 
 ## Why not GNU sort -R instead?
 
@@ -13,8 +13,7 @@ terashuf has 2 advantages over `sort -R`:
 
 `shuf` does all the shuffling in-memory, which is a no-go for files larger than memory.
 
-For small files, terashuf doesn't write any temporary files and so functions exactly like `shuf`. In 
-the benchmark below, terashuf marginally outperforms shuf.
+For small files, terashuf doesn't write any temporary files and so functions exactly like `shuf`.
 
 ## Benchmark
 
@@ -50,15 +49,17 @@ It reads 4 ENV variables:
 
 When shuffling very large files, terashuf needs to keep open `SIZE_OF_FILE_TO_SHUFFLE / MEMORY` temporary files. **Make sure to [set the maximum number of file descriptors](https://www.cyberciti.biz/faq/linux-increase-the-maximum-number-of-open-files/) to at least this number.** By setting a large file descriptor limit, you ensure that terashuf won't abort a shuffle midway, saving precious researcher time. 
 
-## Quasi-shuffle
+## Shuffle
 
-terashuf implements a quasi-shuffle as follows:
+terashuf shuffles as follows:
 
 1. Divide N input lines into K files containing L lines.
 2. Shuffle each of the K files (this is done in memory before writing the file).
-3. Read one line from each of the K files into a buffer until the buffer has L lines.
-4. Shuffle the buffer and write to output.
-5. Repeat 3. and 4. until all lines have been written to output.
+3. Sample one of the K files where the probability of drawing a file is proportional to the number of lines remaining in the file.
+4. Pop the first line from the sampled file and write it to output.
+5. Repeat 3-4 until all lines have been written to output.
+
+This algorithm was suggested by Nick Downing and proven fair by Ivan in this [thread](https://lemire.me/blog/2010/03/15/external-memory-shuffling-in-linear-time/). The previous version of terashuf used a quasi(unfair)-shuffle. 
 
 ## TODO
 
