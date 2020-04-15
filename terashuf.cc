@@ -51,10 +51,9 @@ struct TmpFile
 
 ll maxLineLen;
 ll bufBytes;
-ll bufPos;
+ll bufPos = 0;
 std::vector<ll> shufIndexes;
 char *buf;
-ll longestLine;
 float memory = 4.;
 char sep = '\n';
 int seed = time(NULL);
@@ -111,36 +110,38 @@ ll readLine(char *buf, TmpFile *f)
     return 0;
 }
 
-ll fillBufAndMarkLines(char *buf, FILE *f)
+void copyLeftOversOrResetBuffer()
 {
-    // anything remaining from last fillBuf? move to buf start
-    if (bufPos == bufBytes)
+    if (bufPos < bufBytes)
     {
-        // check if buf ends in newline, otherwise keep track of where
-        // incomplete line started so it can be copied to beginning of buffer
-        // after flush
-        while (bufPos > 0 && buf[bufPos - 1] != sep)
-            bufPos--;
-        if (bufPos == 0)
-        {
-            fprintf(
-                stderr,
-                "FATAL ERROR: line too long to fit in buffer (> %zu bytes):\n",
-                bufBytes);
-            fwrite(buf, sizeof(char), MIN(bufBytes, 50), stderr);
-            fprintf(stderr, "...\n");
-            exit(1); // line was too long to fit in buf, can't be shuffled
-        }
-        ll bytesToCpy = bufBytes - bufPos;
-        memcpy(buf, buf + bufPos, bytesToCpy);
-        bufPos = bytesToCpy;
-    }
-    else
-    {
+        // no leftovers, last fillBuf didn't fill buffer
         bufPos = 0;
+        return;
     }
+    // check if buf ends in newline, otherwise keep track of where
+    // incomplete line started so it can be copied to beginning of buffer
+    // after flush
+    while (bufPos > 0 && buf[bufPos - 1] != sep)
+        bufPos--;
+    if (bufPos == 0)
+    {
+        fprintf(
+            stderr,
+            "FATAL ERROR: line too long to fit in buffer (> %zu bytes):\n",
+            bufBytes);
+        fwrite(buf, sizeof(char), MIN(bufBytes, 50), stderr);
+        fprintf(stderr, "...\n");
+        exit(1); // line was too long to fit in buf, can't be shuffled
+    }
+    ll bytesToCpy = bufBytes - bufPos;
+    memcpy(buf, buf + bufPos, bytesToCpy);
+    bufPos = bytesToCpy;
+}
 
-    // fill rest of buf
+ll fillBufAndMarkLines(FILE *f)
+{
+    copyLeftOversOrResetBuffer();
+
     bufPos += fread(buf + bufPos, sizeof(char), bufBytes - bufPos, f);
 
     // handle missing sep on last line
@@ -148,16 +149,14 @@ ll fillBufAndMarkLines(char *buf, FILE *f)
     if (bufPos > 0 && bufPos < bufBytes && buf[bufPos - 1] != sep)
         buf[bufPos++] = sep;
 
-    shufIndexes.clear();
     // mark lines and store pos in shufIndexes
     ll lineStart = 0;
+    shufIndexes.clear();
     for (ll i = 0; i < bufPos; i++)
     {
         if (buf[i] != sep)
             continue;
         shufIndexes.push_back(lineStart);
-        ll lineLen = i - lineStart + 1;
-        longestLine = MAX(longestLine, lineLen);
         lineStart = i + 1;
         if (!memoryOverheadDisplayed && shufIndexes.size() >= LINES_BEFORE_ESTIMATING_MEMORY_OVERHEAD)
         {
@@ -203,16 +202,15 @@ int main()
 
     fprintf(stderr, "\nstarting read\n");
 
-    ll newBufPos = 0;
     ll totalBytesRead = 0, totalLinesRead = 0;
 
     std::vector<TmpFile *> files;
 
-    while ((newBufPos = fillBufAndMarkLines(buf, stdin)))
+    while (fillBufAndMarkLines(stdin))
     {
         TmpFile *tmpFile = (TmpFile *)malloc(sizeof(TmpFile));
         FILE *f;
-        if (newBufPos < bufBytes && files.size() == 0)
+        if (bufPos < bufBytes && files.size() == 0)
         {
             // finished reading input using single buffer, don't need to create
             // tmpfile, flush buffer to stdout directly
@@ -238,8 +236,7 @@ int main()
             }
             f = tmpFile->f;
         }
-        if (shufIndexes.size() > 0)
-            totalBytesRead += shufFlushBuf(f);
+        totalBytesRead += shufFlushBuf(f);
         totalLinesRead += shufIndexes.size();
         tmpFile->lines = shufIndexes.size();
         fprintf(stderr, "\rlines read: %zu, gb read: %zu", totalLinesRead,
@@ -278,22 +275,25 @@ int main()
 
     while (linesRemaining)
     {
-        ll randLine = std::rand()%linesRemaining;  
+        ll randLine = std::rand() % linesRemaining;
         ll cumSum = 0;
         for (std::vector<TmpFile *>::const_iterator it = files.begin(); it != files.end(); ++it)
         {
             TmpFile *file = *it;
             cumSum += file->lines;
-            if (randLine < cumSum) {
+            if (randLine < cumSum)
+            {
                 linesRemaining--;
                 file->lines--;
                 ll bytesRead = readLine(buf, file);
-                if (!file->lines) {
+                if (!file->lines)
+                {
                     fclose(file->f);
                     unlink(file->path);
                 }
                 ll bytesWritten = fwrite(buf, sizeof(char), bytesRead, stdout);
-                if (bytesRead != bytesWritten) {
+                if (bytesRead != bytesWritten)
+                {
                     fprintf(stderr, "\nFATAL ERROR: failed to write line to disk. is there space left?\n");
                     return -1;
                 }
@@ -303,9 +303,10 @@ int main()
             }
         }
         // check if enough room in buffer to hold longest line
-        if (!linesRemaining || totalBytesWrittenForProgress >= bufBytes) {
+        if (!linesRemaining || totalBytesWrittenForProgress >= bufBytes)
+        {
             fprintf(stderr, "\rlines written: %zu, gb written: %zu",
-                totalLinesRead-linesRemaining, totalBytesWritten / (1024 * 1024 * 1024));
+                    totalLinesRead - linesRemaining, totalBytesWritten / (1024 * 1024 * 1024));
             totalBytesWrittenForProgress = 0;
         }
     }
