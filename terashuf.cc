@@ -28,14 +28,11 @@
 #include "string.h"
 #include "unistd.h"
 
-#define MAX(x, y) (((x) > (y)) ? (x) : (y))
-#define MIN(x, y) (((x) < (y)) ? (x) : (y))
-
 typedef std::size_t ll;
 
-const int MAX_PATH_LEN = 1000;
 const int IO_CHUNK = 64 * 1024;
 const int LINES_BEFORE_ESTIMATING_MEMORY_OVERHEAD = 1e6;
+const char TMP_NAME_TEMPLATE[] = "/terashuftmpXXXXXX";
 
 struct TmpFile
 {
@@ -49,9 +46,7 @@ struct TmpFile
     bool eof;
 };
 
-ll maxLineLen;
-ll bufBytes;
-ll bufPos = 0;
+ll bufBytes, bufPos;
 std::vector<ll> shufIndexes;
 char *buf;
 float memory = 4.;
@@ -95,7 +90,7 @@ char bufferedFgetc(TmpFile *f)
     return f->buf[f->bufPos++];
 }
 
-ll readLine(char *buf, TmpFile *f)
+ll readLine(TmpFile *f)
 {
     ll bufPos = 0;
     char c = 0;
@@ -129,7 +124,7 @@ void copyLeftOversOrResetBuffer()
             stderr,
             "FATAL ERROR: line too long to fit in buffer (> %zu bytes):\n",
             bufBytes);
-        fwrite(buf, sizeof(char), MIN(bufBytes, 50), stderr);
+        fwrite(buf, sizeof(char), std::min(bufBytes, (ll)50), stderr);
         fprintf(stderr, "...\n");
         exit(1); // line was too long to fit in buf, can't be shuffled
     }
@@ -183,9 +178,9 @@ int main()
     char const *tmpDir = std::getenv("TMPDIR");
     if (tmpDir == NULL)
         tmpDir = "/tmp";
-    char tmpNameTemplate[MAX_PATH_LEN];
+    char *tmpNameTemplate = (char *)malloc((strlen(tmpDir) + sizeof(TMP_NAME_TEMPLATE)) * sizeof(char));
     strcpy(tmpNameTemplate, tmpDir);
-    strcat(tmpNameTemplate, "/terashuftmpXXXXXX");
+    strcat(tmpNameTemplate, TMP_NAME_TEMPLATE);
 
     char *memoryStr = std::getenv("MEMORY");
     if (memoryStr != NULL && strlen(memoryStr))
@@ -197,7 +192,7 @@ int main()
     if (buf == NULL)
     {
         fprintf(stderr, "failed to allocate buf memory\n");
-        return -1;
+        return 1;
     }
 
     fprintf(stderr, "\nstarting read\n");
@@ -213,26 +208,28 @@ int main()
         if (bufPos < bufBytes && files.size() == 0)
         {
             // finished reading input using single buffer, don't need to create
-            // tmpfile, flush buffer to stdout directly
+            // tmpfile, will flush buffer to stdout directly and exit
             f = stdout;
         }
         else
         {
-            tmpFile->path = (char *)malloc(MAX_PATH_LEN);
+            // create temp file, will flush buffer to this temp file
+            // and continue loop if there is more data in stdin
+            tmpFile->path = (char *)malloc((strlen(tmpNameTemplate) + 1) * sizeof(char));
             strcpy(tmpFile->path, tmpNameTemplate);
             int fd = mkstemp(tmpFile->path);
             if (fd == -1)
             {
                 fprintf(stderr, "failed to create fd tmp file %s\n",
                         tmpNameTemplate);
-                return -1;
+                return 1;
             }
             tmpFile->f = fdopen(fd, "wb+");
             if (tmpFile->f == NULL)
             {
                 fprintf(stderr, "failed to create tmp file %s\n",
                         tmpFile->path);
-                return -1;
+                return 1;
             }
             f = tmpFile->f;
         }
@@ -285,7 +282,7 @@ int main()
             {
                 linesRemaining--;
                 file->lines--;
-                ll bytesRead = readLine(buf, file);
+                ll bytesRead = readLine(file);
                 if (!file->lines)
                 {
                     fclose(file->f);
@@ -295,14 +292,14 @@ int main()
                 if (bytesRead != bytesWritten)
                 {
                     fprintf(stderr, "\nFATAL ERROR: failed to write line to disk. is there space left?\n");
-                    return -1;
+                    return 1;
                 }
                 totalBytesWritten += bytesWritten;
                 totalBytesWrittenForProgress += bytesWritten;
                 break;
             }
         }
-        // check if enough room in buffer to hold longest line
+        // progress report
         if (!linesRemaining || totalBytesWrittenForProgress >= bufBytes)
         {
             fprintf(stderr, "\rlines written: %zu, gb written: %zu",
