@@ -175,6 +175,11 @@ int main()
         seed = strtol(seedStr, NULL, 10);
     srand(seed);
 
+    char *skipStr = std::getenv("SKIP");
+    int skipLines = 0;
+    if (skipStr != NULL && strlen(skipStr))
+        skipLines = strtol(skipStr, NULL, 10);
+
     char const *tmpDir = std::getenv("TMPDIR");
     if (tmpDir == NULL)
         tmpDir = "/tmp";
@@ -200,6 +205,20 @@ int main()
     ll totalBytesRead = 0, totalLinesRead = 0;
 
     std::vector<TmpFile *> files;
+
+    while (skipLines)
+    {
+        char c = fgetc(stdin);
+        if (c == EOF)
+            return 0;
+        if (fputc(c, stdout) == EOF)
+        {
+            fprintf(stderr, "failed to write SKIP lines. is disk full?");
+            return 1;
+        }
+        if (c == sep)
+            skipLines--;
+    }
 
     while (fillBufAndMarkLines(stdin))
     {

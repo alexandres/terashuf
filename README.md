@@ -42,10 +42,11 @@ terashuf can be built by calling ```$ make```. It has no dependencies other than
 
 It reads 4 ENV variables:
 
-- SEP (character): character to use as line separator; defaults to `$'\n'`.
-- SEED (int): number to seed RNG; defaults to current time. Set to fixed value for deterministic shuffles.
 - TMPDIR (string): where to store temporary files; defaults to /tmp if not set.
 - MEMORY (float): how much memory to use in GB for buffers; defaults to 4.0.
+- SKIP (int): how many lines to skip at beginning of input; defaults to 0. When shuffling CSV files, set to 1 to preserve header.
+- SEP (character): character to use as line separator; defaults to `$'\n'`.
+- SEED (int): number to seed RNG; defaults to current time. Set this *and* MEMORY to fixed values for deterministic shuffles.
 
 When shuffling very large files, terashuf needs to keep open `SIZE_OF_FILE_TO_SHUFFLE / MEMORY` temporary files. **Make sure to [set the maximum number of file descriptors](https://www.cyberciti.biz/faq/linux-increase-the-maximum-number-of-open-files/) to at least this number.** By setting a large file descriptor limit, you ensure that terashuf won't abort a shuffle midway, saving precious researcher time. 
 
