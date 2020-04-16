@@ -25,6 +25,7 @@
 #include <string>
 #include <vector>
 #include <algorithm>
+#include <random>
 #include "string.h"
 #include "unistd.h"
 
@@ -53,10 +54,11 @@ float memory = 4.;
 char sep = '\n';
 int seed = time(NULL);
 bool memoryOverheadDisplayed;
+std::mt19937_64 rng;
 
 ll shufFlushBuf(FILE *f)
 {
-    std::random_shuffle(shufIndexes.begin(), shufIndexes.end());
+    std::shuffle(shufIndexes.begin(), shufIndexes.end(), rng);
     ll bytesWritten = 0;
     for (std::vector<ll>::const_iterator it = shufIndexes.begin(); it != shufIndexes.end(); ++it)
     {
@@ -173,7 +175,7 @@ int main()
     char *seedStr = std::getenv("SEED");
     if (seedStr != NULL && strlen(seedStr))
         seed = strtol(seedStr, NULL, 10);
-    srand(seed);
+    rng = std::mt19937_64(seed);
 
     char *skipStr = std::getenv("SKIP");
     int skipLines = 0;
@@ -291,7 +293,7 @@ int main()
 
     while (linesRemaining)
     {
-        ll randLine = std::rand() % linesRemaining;
+        ll randLine = std::uniform_int_distribution<ll>{0, linesRemaining - 1}(rng);
         ll cumSum = 0;
         for (std::vector<TmpFile *>::const_iterator it = files.begin(); it != files.end(); ++it)
         {
