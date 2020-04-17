@@ -47,22 +47,12 @@ struct TmpFile
     bool eof;
 };
 
-ll bufBytes, bufPos;
-std::vector<ll> shufIndexes;
-char *buf;
-float memory = 4.;
-char sep = '\n';
-int seed = time(NULL);
-bool memoryOverheadDisplayed;
-std::mt19937_64 rng;
-
-ll shufFlushBuf(FILE *f)
+ll shufFlushBuf(char *buf, std::vector<ll> &shufIndexes, std::mt19937_64 &rng, char sep, FILE *f)
 {
     std::shuffle(shufIndexes.begin(), shufIndexes.end(), rng);
     ll bytesWritten = 0;
-    for (std::vector<ll>::const_iterator it = shufIndexes.begin(); it != shufIndexes.end(); ++it)
+    for (auto line : shufIndexes)
     {
-        ll line = *it;
         ll j = 0;
         while (*(buf + line + j) != sep)
             j++;
@@ -92,7 +82,7 @@ char bufferedFgetc(TmpFile *f)
     return f->buf[f->bufPos++];
 }
 
-ll readLine(TmpFile *f)
+ll readLine(char *buf, char sep, TmpFile *f)
 {
     ll bufPos = 0;
     char c = 0;
@@ -107,54 +97,40 @@ ll readLine(TmpFile *f)
     return 0;
 }
 
-void copyLeftOversOrResetBuffer()
+bool fillBufAndMarkLines(FILE *f, char *buf, const ll bufBytes, std::vector<ll> &shufIndexes, char sep, float memory)
 {
-    if (bufPos < bufBytes)
-    {
-        // no leftovers, last fillBuf didn't fill buffer
-        bufPos = 0;
-        return;
-    }
-    // check if buf ends in newline, otherwise keep track of where
-    // incomplete line started so it can be copied to beginning of buffer
-    // after flush
-    while (bufPos > 0 && buf[bufPos - 1] != sep)
-        bufPos--;
-    if (bufPos == 0)
-    {
-        fprintf(
-            stderr,
-            "FATAL ERROR: line too long to fit in buffer (> %zu bytes):\n",
-            bufBytes);
-        fwrite(buf, sizeof(char), std::min(bufBytes, (ll)50), stderr);
-        fprintf(stderr, "...\n");
-        exit(1); // line was too long to fit in buf, can't be shuffled
-    }
-    ll bytesToCpy = bufBytes - bufPos;
-    memcpy(buf, buf + bufPos, bytesToCpy);
-    bufPos = bytesToCpy;
-}
+    static ll bufPos = 0, lastLineEndPos = 0;                    
+    static bool memoryOverheadDisplayed;
 
-ll fillBufAndMarkLines(FILE *f)
-{
-    copyLeftOversOrResetBuffer();
+    // see if anything left from previous fillBuf
+    if (bufPos)
+    {
+        ll bytesToCpy = bufBytes - lastLineEndPos;
+        memmove(buf, buf + lastLineEndPos, bytesToCpy);
+        bufPos = bytesToCpy;
+    }
 
     bufPos += fread(buf + bufPos, sizeof(char), bufBytes - bufPos, f);
+    // if got nothing in buffer, signal we're done
+    if (!bufPos)
+        return true;
 
     // handle missing sep on last line
-    // buffer not empty and not full and previous position is not newline
-    if (bufPos > 0 && bufPos < bufBytes && buf[bufPos - 1] != sep)
+    // buffer not full and previous position is not newline
+    if (bufPos < bufBytes && buf[bufPos - 1] != sep)
         buf[bufPos++] = sep;
 
     // mark lines and store pos in shufIndexes
     ll lineStart = 0;
     shufIndexes.clear();
+    lastLineEndPos = 0;
     for (ll i = 0; i < bufPos; i++)
     {
         if (buf[i] != sep)
             continue;
         shufIndexes.push_back(lineStart);
         lineStart = i + 1;
+        lastLineEndPos = i + 1;
         if (!memoryOverheadDisplayed && shufIndexes.size() >= LINES_BEFORE_ESTIMATING_MEMORY_OVERHEAD)
         {
             memoryOverheadDisplayed = true;
@@ -163,24 +139,31 @@ ll fillBufAndMarkLines(FILE *f)
             fprintf(stderr, "mean line-length is %.2f, estimated memory usage is %.2f * %.2f GB = %.2f GB\nTip: If you would like use exactly %.2f GB of memory, use MEMORY=%.4f ./terashuf ...\n", averageBytesPerLine - 1, memoryOverhead, memory, memoryOverhead * memory, memory, memory / memoryOverhead);
         }
     }
-    return bufPos;
+    if (shufIndexes.size() == 0)
+    {
+        fprintf(
+            stderr,
+            "\nFATAL ERROR: line too long to fit in buffer (> %zu bytes):\n",
+            bufBytes);
+        fwrite(buf, sizeof(char), std::min(bufBytes, (ll)50), stderr);
+        fprintf(stderr, "...\n");
+        exit(1); // line was too long to fit in buf, can't be shuffled
+    }
+    // if buffer isn't full, signal we're done
+    return bufPos < bufBytes;
 }
 
 int main()
 {
     char const *sepStr = std::getenv("SEP");
-    if (sepStr != NULL && strlen(sepStr))
-        sep = sepStr[0];
+    const char sep = (sepStr != NULL && strlen(sepStr)) ? sepStr[0] : '\n';
 
     char *seedStr = std::getenv("SEED");
-    if (seedStr != NULL && strlen(seedStr))
-        seed = strtol(seedStr, NULL, 10);
-    rng = std::mt19937_64(seed);
+    const int seed = (seedStr != NULL && strlen(seedStr)) ? strtol(seedStr, NULL, 10) : time(NULL);
+    std::mt19937_64 rng(seed);
 
     char *skipStr = std::getenv("SKIP");
-    int skipLines = 0;
-    if (skipStr != NULL && strlen(skipStr))
-        skipLines = strtol(skipStr, NULL, 10);
+    const int skipLines = (skipStr != NULL && strlen(skipStr)) ? strtol(skipStr, NULL, 10) : 0;
 
     char const *tmpDir = std::getenv("TMPDIR");
     if (tmpDir == NULL)
@@ -190,11 +173,12 @@ int main()
     strcat(tmpNameTemplate, TMP_NAME_TEMPLATE);
 
     char *memoryStr = std::getenv("MEMORY");
-    if (memoryStr != NULL && strlen(memoryStr))
-        memory = strtof(memoryStr, NULL);
+    const float memory = (memoryStr != NULL && strlen(memoryStr)) ? strtof(memoryStr, NULL) : 4;
 
-    bufBytes = sizeof(char) * (ll)(memory * 1024. * 1024. * 1024.);
-    buf = (char *)malloc(bufBytes);
+    std::vector<ll> shufIndexes;
+
+    const ll bufBytes = sizeof(char) * (ll)(memory * 1024. * 1024. * 1024.);
+    char *buf = (char *)malloc(bufBytes);
     fprintf(stderr, "trying to allocate %zu bytes\n", bufBytes);
     if (buf == NULL)
     {
@@ -204,11 +188,7 @@ int main()
 
     fprintf(stderr, "\nstarting read\n");
 
-    ll totalBytesRead = 0, totalLinesRead = 0;
-
-    std::vector<TmpFile *> files;
-
-    while (skipLines)
+    for (int i = 0; i < skipLines;)
     {
         char c = fgetc(stdin);
         if (c == EOF)
@@ -219,23 +199,25 @@ int main()
             return 1;
         }
         if (c == sep)
-            skipLines--;
+            i++;
     }
+    fprintf(stderr, "skipped %d lines\n", skipLines);
 
-    while (fillBufAndMarkLines(stdin))
+    ll totalBytesRead = 0, totalLinesRead = 0;
+    std::vector<TmpFile *> files;
+    bool reachedEof = false;
+    while (!reachedEof)
     {
+        reachedEof = fillBufAndMarkLines(stdin, buf, bufBytes, shufIndexes, sep, memory);
         TmpFile *tmpFile = (TmpFile *)malloc(sizeof(TmpFile));
-        FILE *f;
-        if (bufPos < bufBytes && files.size() == 0)
+        // default output is stdout. if input fit in buffer, no need to use
+        // temp files, just write to stdout.
+        tmpFile->f = stdout; 
+        if (!reachedEof || files.size() > 0)
         {
-            // finished reading input using single buffer, don't need to create
-            // tmpfile, will flush buffer to stdout directly and exit
-            f = stdout;
-        }
-        else
-        {
-            // create temp file, will flush buffer to this temp file
-            // and continue loop if there is more data in stdin
+            // haven't reached eof so have to call fillBuf again.
+            // or we did did reach eof but there is already a temp file,
+            // so we are already in temp file mode, not direct to stdout.
             tmpFile->path = (char *)malloc((strlen(tmpNameTemplate) + 1) * sizeof(char));
             strcpy(tmpFile->path, tmpNameTemplate);
             int fd = mkstemp(tmpFile->path);
@@ -252,9 +234,8 @@ int main()
                         tmpFile->path);
                 return 1;
             }
-            f = tmpFile->f;
         }
-        totalBytesRead += shufFlushBuf(f);
+        totalBytesRead += shufFlushBuf(buf, shufIndexes, rng, sep, tmpFile->f);
         totalLinesRead += shufIndexes.size();
         tmpFile->lines = shufIndexes.size();
         fprintf(stderr, "\rlines read: %zu, gb read: %zu", totalLinesRead,
@@ -274,11 +255,8 @@ int main()
         return 0;
     }
 
-    std::vector<TmpFile *> files2;
-
-    for (std::vector<TmpFile *>::const_iterator it = files.begin(); it != files.end(); ++it)
+    for (auto file : files)
     {
-        TmpFile *file = *it;
         rewind(file->f);
         // for bufferedFgetc
         file->buf = (char *)malloc(IO_CHUNK);
@@ -295,15 +273,14 @@ int main()
     {
         ll randLine = std::uniform_int_distribution<ll>{0, linesRemaining - 1}(rng);
         ll cumSum = 0;
-        for (std::vector<TmpFile *>::const_iterator it = files.begin(); it != files.end(); ++it)
+        for (auto file : files)
         {
-            TmpFile *file = *it;
             cumSum += file->lines;
             if (randLine < cumSum)
             {
                 linesRemaining--;
                 file->lines--;
-                ll bytesRead = readLine(file);
+                ll bytesRead = readLine(buf, sep, file);
                 if (!file->lines)
                 {
                     fclose(file->f);
