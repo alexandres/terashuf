@@ -6,7 +6,7 @@ terashuf shuffles multi-terabyte text files using limited memory. It is an impro
 
 terashuf has 2 advantages over `sort -R`:
 
-1. terashuf is much, much faster. See benchmark below.
+1. terashuf is much more faster. See benchmarks below.
 2. It can shuffle duplicate lines. To deal with duplicate lines in `sort`, the input has to be modified (append an incremental token) so that duplicate lines are different otherwise sort will hash them to the same value and place them in adjacent lines, which is not desirable in a shuffle! Then the tokens have to be removed. It's simpler to use terashuf where none of this is required. 
 
 ## Why not GNU shuf?
@@ -44,7 +44,7 @@ It reads 4 ENV variables:
 
 - TMPDIR (string): where to store temporary files; defaults to /tmp if not set.
 - MEMORY (float): how much memory to use in GB for buffers; defaults to 4.0.
-- SKIP (int): how many lines to skip at beginning of input; defaults to 0. When shuffling CSV files, set to 1 to preserve header.
+- SKIP (int): how many lines to skip at beginning for input; defaults to 0. When shuffling CSV files, set to 1 to preserve header.
 - SEP (character): character to use as line separator; defaults to `$'\n'`.
 - SEED (int): number to seed RNG; defaults to current time. Set this *and* MEMORY to fixed values for deterministic shuffles.
 
@@ -58,9 +58,9 @@ terashuf shuffles as follows:
 2. Shuffle each of the K files (this is done in memory before writing the file).
 3. Sample one of the K files where the probability of drawing a file is proportional to the number of lines remaining in the file.
 4. Pop the first line from the sampled file and write it to output.
-5. Repeat 3-4 until all lines have been written to output.
+5. Repeat 3-4 times until all lines have been written to output.
 
-This algorithm was suggested by Nick Downing and proven fair by Ivan in this [thread](https://lemire.me/blog/2010/03/15/external-memory-shuffling-in-linear-time/). The previous version of terashuf used a quasi(unfair)-shuffle. 
+This algorithm was suggested by Nick Downing and proven fair by Ivan in this [thread](https://lemire.me/blog/2010/03/15/external-memory-shuffling-in-linear-time/). The previous version of terashuf used a quasi (unfair) -shuffle. 
 
 ## TODO
 
