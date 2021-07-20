@@ -48,7 +48,14 @@ It reads 4 ENV variables:
 - SEP (character): character to use as line separator; defaults to `$'\n'`.
 - SEED (int): number to seed RNG; defaults to current time. Set this *and* MEMORY to fixed values for deterministic shuffles.
 
-When shuffling very large files, terashuf needs to keep open `SIZE_OF_FILE_TO_SHUFFLE / MEMORY` temporary files. **Make sure to [set the maximum number of file descriptors](https://www.cyberciti.biz/faq/linux-increase-the-maximum-number-of-open-files/) to at least this number.** By setting a large file descriptor limit, you ensure that terashuf won't abort a shuffle midway, saving precious researcher time. 
+**When shuffling very large files, terashuf needs to keep open `SIZE_OF_FILE_TO_SHUFFLE (in GB) / MEMORY (in GB)` temporary files.**
+
+For example, to shuffle a 5TB file using 4GB (the default) of memory you need 1250 file descriptors. 
+On most Linux distributions, the default number of files a single process can have open simultaneously is 1024, so the shuffle would fail.
+
+**Setting a large limit by running `$ ulimit -n 100000` beforehand, you ensure that terashuf won't abort a shuffle midway, saving precious researcher time.**
+
+Read more about [setting the maximum number of file descriptors](https://www.cyberciti.biz/faq/linux-increase-the-maximum-number-of-open-files/).
 
 ## Shuffle
 
