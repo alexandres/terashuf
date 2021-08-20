@@ -68,21 +68,21 @@ ll shufFlushBuf(char *buf, std::vector<ll> &shufIndexes, std::mt19937_64 &rng, c
     return bytesWritten;
 }
 
-char bufferedFgetc(TmpFile *f)
+char bufferedFgetc(TmpFile &f)
 {
-    if (!f->eof && f->bufPos == f->bufN)
+    if (!f.eof && f.bufPos == f.bufN)
     {
-        f->bufN = fread(f->buf, sizeof(char), IO_CHUNK, f->f);
-        f->bufPos = 0;
-        if (!f->bufN)
-            f->eof = true;
+        f.bufN = fread(f.buf, sizeof(char), IO_CHUNK, f.f);
+        f.bufPos = 0;
+        if (!f.bufN)
+            f.eof = true;
     }
-    if (f->eof)
+    if (f.eof)
         return EOF;
-    return f->buf[f->bufPos++];
+    return f.buf[f.bufPos++];
 }
 
-ll readLine(char *buf, char sep, TmpFile *f)
+ll readLine(char *buf, char sep, TmpFile &f)
 {
     ll bufPos = 0;
     char c = 0;
@@ -99,7 +99,7 @@ ll readLine(char *buf, char sep, TmpFile *f)
 
 bool fillBufAndMarkLines(FILE *f, char *buf, const ll bufBytes, std::vector<ll> &shufIndexes, char sep, float memory)
 {
-    static ll bufPos = 0, lastLineEndPos = 0;                    
+    static ll bufPos = 0, lastLineEndPos = 0;
     static bool memoryOverheadDisplayed;
 
     // see if anything left from previous fillBuf
@@ -204,40 +204,40 @@ int main()
     fprintf(stderr, "skipped %d lines\n", skipLines);
 
     ll totalBytesRead = 0, totalLinesRead = 0;
-    std::vector<TmpFile *> files;
+    std::vector<TmpFile> files;
     bool reachedEof = false;
     while (!reachedEof)
     {
         reachedEof = fillBufAndMarkLines(stdin, buf, bufBytes, shufIndexes, sep, memory);
-        TmpFile *tmpFile = (TmpFile *)malloc(sizeof(TmpFile));
+        TmpFile tmpFile;
         // default output is stdout. if input fit in buffer, no need to use
         // temp files, just write to stdout.
-        tmpFile->f = stdout; 
+        tmpFile.f = stdout;
         if (!reachedEof || files.size() > 0)
         {
             // haven't reached eof so have to call fillBuf again.
             // or we did did reach eof but there is already a temp file,
             // so we are already in temp file mode, not direct to stdout.
-            tmpFile->path = (char *)malloc((strlen(tmpNameTemplate) + 1) * sizeof(char));
-            strcpy(tmpFile->path, tmpNameTemplate);
-            int fd = mkstemp(tmpFile->path);
+            tmpFile.path = (char *)malloc((strlen(tmpNameTemplate) + 1) * sizeof(char));
+            strcpy(tmpFile.path, tmpNameTemplate);
+            int fd = mkstemp(tmpFile.path);
             if (fd == -1)
             {
                 fprintf(stderr, "failed to create fd tmp file %s\n",
                         tmpNameTemplate);
                 return 1;
             }
-            tmpFile->f = fdopen(fd, "wb+");
-            if (tmpFile->f == NULL)
+            tmpFile.f = fdopen(fd, "wb+");
+            if (tmpFile.f == NULL)
             {
                 fprintf(stderr, "failed to create tmp file %s\n",
-                        tmpFile->path);
+                        tmpFile.path);
                 return 1;
             }
         }
-        totalBytesRead += shufFlushBuf(buf, shufIndexes, rng, sep, tmpFile->f);
+        totalBytesRead += shufFlushBuf(buf, shufIndexes, rng, sep, tmpFile.f);
         totalLinesRead += shufIndexes.size();
-        tmpFile->lines = shufIndexes.size();
+        tmpFile.lines = shufIndexes.size();
         fprintf(stderr, "\rlines read: %zu, gb read: %zu", totalLinesRead,
                 totalBytesRead / (1024 * 1024 * 1024));
         files.push_back(tmpFile);
@@ -255,14 +255,17 @@ int main()
         return 0;
     }
 
-    for (auto file : files)
+    std::vector<ll> linesRemainingPerFile;
+
+    for (auto &file : files)
     {
-        rewind(file->f);
+        rewind(file.f);
         // for bufferedFgetc
-        file->buf = (char *)malloc(IO_CHUNK);
-        file->bufPos = 0;
-        file->bufN = 0;
-        file->eof = false;
+        file.buf = (char *)malloc(IO_CHUNK);
+        file.bufPos = 0;
+        file.bufN = 0;
+        file.eof = false;
+        linesRemainingPerFile.push_back(file.lines);
     }
 
     ll totalBytesWritten = 0, linesRemaining = totalLinesRead, totalBytesWrittenForProgress = 0;
@@ -273,18 +276,19 @@ int main()
     {
         ll randLine = std::uniform_int_distribution<ll>{0, linesRemaining - 1}(rng);
         ll cumSum = 0;
-        for (auto file : files)
+        for (std::size_t fileIdx = 0; fileIdx < linesRemainingPerFile.size(); fileIdx++)
         {
-            cumSum += file->lines;
+            cumSum += linesRemainingPerFile[fileIdx];
             if (randLine < cumSum)
             {
                 linesRemaining--;
-                file->lines--;
+                linesRemainingPerFile[fileIdx]--;
+                TmpFile &file = files[fileIdx];
                 ll bytesRead = readLine(buf, sep, file);
-                if (!file->lines)
+                if (!linesRemainingPerFile[fileIdx])
                 {
-                    fclose(file->f);
-                    unlink(file->path);
+                    fclose(file.f);
+                    unlink(file.path);
                 }
                 ll bytesWritten = fwrite(buf, sizeof(char), bytesRead, stdout);
                 if (bytesRead != bytesWritten)
