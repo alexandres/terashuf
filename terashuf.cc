@@ -153,6 +153,62 @@ bool fillBufAndMarkLines(FILE *f, char *buf, const ll bufBytes, std::vector<ll> 
     return bufPos < bufBytes;
 }
 
+// see https://en.wikipedia.org/wiki/Fenwick_tree and
+// and http://timvieira.github.io/blog/post/2016/11/21/heaps-for-incremental-computation/
+// ported from https://github.com/timvieira/arsenal/blob/master/arsenal/datastructures/heap/sumheap.pyx
+class FenwickTree
+{
+private:
+    std::vector<ll> S;
+    int n, d;
+
+    void heapify(const std::vector<ll> &w)
+    {
+        // Create sumheap from weights `w` in O(n) time.
+        for (int i = 0; i < n; i++)
+            S[d + i] = w[i]; // store `w` at leaves.
+        for (int i = d - 1; i > 0; i--)
+            S[i] = S[2 * i] + S[2 * i + 1];
+    }
+
+public:
+    FenwickTree(const std::vector<ll> &w)
+    {
+        n = w.size();
+        d = int(std::pow(2, std::ceil(std::log2(n)))); // number of intermediates
+        S = std::vector<ll>(2 * d, 0);                 // intermediates + leaves
+        heapify(w);
+    }
+
+    ll getCountAtIndex(int k)
+    {
+        return S[d + k];
+    }
+
+    int findIndexAndDraw(ll p)
+    {
+        // Draw from from sumheap, O(log n) per draw.
+        // Use binary search to find the index of the largest cumsum (represented as a
+        // heap) value that is less than the probe p.
+        ll i = 1;
+        while (true)
+        {
+            S[i]--; // draw
+            if (i >= d)
+                break;
+            // Determine if the value is in the left or right subtree.
+            i *= 2;         // Point at left child
+            ll left = S[i]; // Cumsum under left subtree.
+            if (p > left)
+            {              // Value is in right subtree.
+                p -= left; // Subtract cumsum from left subtree
+                i++;       // Point at right child
+            }
+        }
+        return i - d; // return index after subtracting internal nodes
+    }
+};
+
 int main()
 {
     char const *sepStr = std::getenv("SEP");
@@ -268,6 +324,8 @@ int main()
         linesRemainingPerFile.push_back(file.lines);
     }
 
+    auto sumHeap = FenwickTree(linesRemainingPerFile);
+
     ll totalBytesWritten = 0, linesRemaining = totalLinesRead, totalBytesWrittenForProgress = 0;
 
     fprintf(stderr, "\nstarting write to output\n");
@@ -275,32 +333,24 @@ int main()
     while (linesRemaining)
     {
         ll randLine = std::uniform_int_distribution<ll>{0, linesRemaining - 1}(rng);
-        ll cumSum = 0;
-        for (std::size_t fileIdx = 0; fileIdx < linesRemainingPerFile.size(); fileIdx++)
+        auto fileIdx = sumHeap.findIndexAndDraw(randLine + 1);
+        auto linesRemainingInFile = sumHeap.getCountAtIndex(fileIdx);
+        linesRemaining--;
+        TmpFile &file = files[fileIdx];
+        ll bytesRead = readLine(buf, sep, file);
+        if (!linesRemainingInFile)
         {
-            cumSum += linesRemainingPerFile[fileIdx];
-            if (randLine < cumSum)
-            {
-                linesRemaining--;
-                linesRemainingPerFile[fileIdx]--;
-                TmpFile &file = files[fileIdx];
-                ll bytesRead = readLine(buf, sep, file);
-                if (!linesRemainingPerFile[fileIdx])
-                {
-                    fclose(file.f);
-                    unlink(file.path);
-                }
-                ll bytesWritten = fwrite(buf, sizeof(char), bytesRead, stdout);
-                if (bytesRead != bytesWritten)
-                {
-                    fprintf(stderr, "\nFATAL ERROR: failed to write line to disk. is there space left?\n");
-                    return 1;
-                }
-                totalBytesWritten += bytesWritten;
-                totalBytesWrittenForProgress += bytesWritten;
-                break;
-            }
+            fclose(file.f);
+            unlink(file.path);
         }
+        ll bytesWritten = fwrite(buf, sizeof(char), bytesRead, stdout);
+        if (bytesRead != bytesWritten)
+        {
+            fprintf(stderr, "\nFATAL ERROR: failed to write line to disk. is there space left?\n");
+            return 1;
+        }
+        totalBytesWritten += bytesWritten;
+        totalBytesWrittenForProgress += bytesWritten;
         // progress report
         if (!linesRemaining || totalBytesWrittenForProgress >= bufBytes)
         {
@@ -310,6 +360,5 @@ int main()
         }
     }
     fprintf(stderr, "\ndone\n");
-
     return 0;
 }
