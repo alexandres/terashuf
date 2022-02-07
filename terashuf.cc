@@ -324,7 +324,7 @@ int main()
         linesRemainingPerFile.push_back(file.lines);
     }
 
-    auto sumHeap = FenwickTree(linesRemainingPerFile);
+    auto fenwickTree = FenwickTree(linesRemainingPerFile);
 
     ll totalBytesWritten = 0, linesRemaining = totalLinesRead, totalBytesWrittenForProgress = 0;
 
@@ -333,8 +333,8 @@ int main()
     while (linesRemaining)
     {
         ll randLine = std::uniform_int_distribution<ll>{0, linesRemaining - 1}(rng);
-        auto fileIdx = sumHeap.findIndexAndDraw(randLine + 1);
-        auto linesRemainingInFile = sumHeap.getCountAtIndex(fileIdx);
+        auto fileIdx = fenwickTree.findIndexAndDraw(randLine + 1);
+        auto linesRemainingInFile = fenwickTree.getCountAtIndex(fileIdx);
         linesRemaining--;
         TmpFile &file = files[fileIdx];
         ll bytesRead = readLine(buf, sep, file);
