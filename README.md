@@ -57,7 +57,17 @@ On most Linux distributions, the default number of files a single process can ha
 
 Read more about [setting the maximum number of file descriptors](https://www.cyberciti.biz/faq/linux-increase-the-maximum-number-of-open-files/).
 
-## Shuffle
+### Shuffling multiple files
+
+If your input is split accross multiple files, you can concatenate them and get a single shuffled output file:
+
+`$ cat file1.txt file2.txt etc | ./terashuf > shuffled.txt`
+
+To shuffle and get multiple output files (in this example 4GB each) you can use the [split](https://linux.die.net/man/1/split) command:
+
+`$ cat file1.txt file2.txt etc | ./terashuf | split --line-bytes 4G - shuffled.txt.`
+
+## Algorithm
 
 terashuf shuffles as follows:
 
